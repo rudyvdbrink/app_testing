@@ -71,6 +71,14 @@ class PlayerView(ft.View):
             on_click=self.next_track
         )
 
+        self.repeat_btn = ft.IconButton(
+            icon=ft.Icons.REPEAT,
+            icon_color=ft.Colors.GREY_600,
+            icon_size=20,
+            on_click=self.toggle_repeat,
+            tooltip="Enable Repeat"
+        )
+
         self.appbar = ft.AppBar(
             title=ft.Text("Now Playing", font_family=self.font_family),
             bgcolor=ft.Colors.BLACK,
@@ -89,19 +97,24 @@ class PlayerView(ft.View):
         self.controls = [
             ft.Column(
                 [
+                    self.track_list,
                     self.now_playing_txt,
                     ft.Container(height=10),
                     self.slider,
                     ft.Container(height=10),
                     ft.Row(
-                        [self.prev_btn, self.play_btn, self.next_btn],
+                        [
+                            ft.Container(self.repeat_btn, margin=ft.margin.only(right=20)), # Add some margin
+                            self.prev_btn, 
+                            self.play_btn, 
+                            self.next_btn
+                        ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER
                     ),
-                    ft.Divider(color=ft.Colors.GREY_800),
-                    self.track_list
+                    ft.Container(height=20),
                 ],
-                alignment=ft.MainAxisAlignment.START,
+                alignment=ft.MainAxisAlignment.END,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 expand=True
             )
@@ -135,9 +148,15 @@ class PlayerView(ft.View):
                     ]),
                     padding=10,
                     bgcolor=ft.Colors.GREY_900 if is_current else ft.Colors.TRANSPARENT,
-                    on_click=lambda e, i=idx: self.play_track_by_index(i)
+                    data=idx,
+                    on_click=self.on_track_click
                 )
             )
+
+    async def on_track_click(self, e):
+        idx = e.control.data
+        if idx is not None:
+            await self.play_track_by_index(idx)
 
     def format_time(self, seconds):
         if not seconds: return "0:00"
@@ -145,6 +164,11 @@ class PlayerView(ft.View):
         return f"{m}:{s:02d}"
 
     # --- Event Handlers ---
+
+    async def toggle_repeat(self, e):
+        app_state.is_repeat_enabled = not app_state.is_repeat_enabled
+        self.repeat_btn.icon_color = ft.Colors.GREEN_400 if app_state.is_repeat_enabled else ft.Colors.GREY_600
+        self.repeat_btn.update()
 
     async def play_track_by_index(self, index):
         if 0 <= index < len(app_state.playlist):
@@ -249,6 +273,9 @@ class PlayerView(ft.View):
                          # Auto advance
                          if app_state.current_track_index + 1 < len(app_state.playlist):
                              await self.play_track_by_index(app_state.current_track_index + 1)
+                         elif app_state.is_repeat_enabled and len(app_state.playlist) > 0: 
+                             # Loop back to start if repeat is enabled
+                             await self.play_track_by_index(0)
 
                 except Exception as e:
                     pass

@@ -20,5 +20,6 @@ class AppState:
         self.now_playing_name: str = "No File Selected"
         self.playlist: List[Track] = []
         self.current_track_index: int = -1
+        self.is_repeat_enabled: bool = False
 
 app_state = AppState()
