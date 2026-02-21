@@ -2,6 +2,7 @@ import flet as ft
 from state import app_state
 import pygame
 import asyncio
+import random
 
 class PlayerView(ft.View):
     def __init__(self, page: ft.Page):
@@ -28,7 +29,6 @@ class PlayerView(ft.View):
             min=0, 
             max=app_state.audio_length if app_state.audio_length > 0 else 100, 
             value=app_state.current_pos, 
-            width=300,
             active_color=ft.Colors.GREEN_400,
             thumb_color=ft.Colors.GREEN_ACCENT_700,
             inactive_color=ft.Colors.GREY_900 if app_state.audio_length > 0 else ft.Colors.GREY_800
@@ -37,6 +37,14 @@ class PlayerView(ft.View):
         self.slider.on_change = self.on_slider_change
         self.slider.on_change_start = self.on_slider_change_start
         self.slider.on_change_end = self.on_slider_change_end
+
+        self.position_txt = ft.Text(
+            "0:00 / 0:00",
+            size=10,
+            color=ft.Colors.GREEN_ACCENT_400,
+            font_family=self.font_family,
+            text_align=ft.TextAlign.RIGHT
+        )
 
         self.play_icon = ft.Icon(ft.Icons.PAUSE if app_state.is_playing else ft.Icons.PLAY_ARROW, size=30, color=ft.Colors.BLACK)
 
@@ -79,6 +87,14 @@ class PlayerView(ft.View):
             tooltip="Enable Repeat"
         )
 
+        self.shuffle_btn = ft.IconButton(
+            icon=ft.Icons.SHUFFLE,
+            icon_color=ft.Colors.GREY_600,
+            icon_size=20,
+            on_click=self.toggle_shuffle,
+            tooltip="Enable Shuffle"
+        )
+
         self.appbar = ft.AppBar(
             title=ft.Text("Now Playing", font_family=self.font_family),
             bgcolor=ft.Colors.BLACK,
@@ -101,13 +117,15 @@ class PlayerView(ft.View):
                     self.now_playing_txt,
                     ft.Container(height=10),
                     self.slider,
+                    ft.Container(content=self.position_txt, alignment=ft.Alignment.CENTER_RIGHT, padding=ft.padding.only(right=10)),
                     ft.Container(height=10),
                     ft.Row(
                         [
-                            ft.Container(self.repeat_btn, margin=ft.margin.only(right=20)), # Add some margin
+                            ft.Container(self.repeat_btn, margin=ft.margin.only(right=20)),
                             self.prev_btn, 
                             self.play_btn, 
-                            self.next_btn
+                            self.next_btn,
+                            ft.Container(self.shuffle_btn, margin=ft.margin.only(left=20)), 
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER
@@ -160,7 +178,10 @@ class PlayerView(ft.View):
 
     def format_time(self, seconds):
         if not seconds: return "0:00"
-        m, s = divmod(int(seconds), 60)
+        h, remainder = divmod(int(seconds), 3600)
+        m, s = divmod(remainder, 60)
+        if h > 0:
+            return f"{h}:{m:02d}:{s:02d}"
         return f"{m}:{s:02d}"
 
     # --- Event Handlers ---
@@ -169,6 +190,11 @@ class PlayerView(ft.View):
         app_state.is_repeat_enabled = not app_state.is_repeat_enabled
         self.repeat_btn.icon_color = ft.Colors.GREEN_400 if app_state.is_repeat_enabled else ft.Colors.GREY_600
         self.repeat_btn.update()
+
+    async def toggle_shuffle(self, e):
+        app_state.is_shuffle_enabled = not app_state.is_shuffle_enabled
+        self.shuffle_btn.icon_color = ft.Colors.GREEN_400 if app_state.is_shuffle_enabled else ft.Colors.GREY_600
+        self.shuffle_btn.update()
 
     async def play_track_by_index(self, index):
         if 0 <= index < len(app_state.playlist):
@@ -179,7 +205,13 @@ class PlayerView(ft.View):
             self.track_list.update()
 
     async def next_track(self, e):
-        if app_state.current_track_index + 1 < len(app_state.playlist):
+        if app_state.is_shuffle_enabled and len(app_state.playlist) > 1:
+            next_index = random.randint(0, len(app_state.playlist) - 1)
+            # Try to avoid repeating the same song immediately if possible
+            if next_index == app_state.current_track_index:
+                 next_index = (next_index + 1) % len(app_state.playlist)
+            await self.play_track_by_index(next_index)
+        elif app_state.current_track_index + 1 < len(app_state.playlist):
             await self.play_track_by_index(app_state.current_track_index + 1)
 
     async def prev_track(self, e):
@@ -205,6 +237,9 @@ class PlayerView(ft.View):
             self.slider.value = 0
             self.slider.inactive_color = ft.Colors.GREY_900 if track.duration > 0 else ft.Colors.GREY_800
             self.slider.update()
+            
+            self.position_txt.value = f"0:00 / {self.format_time(track.duration)}"
+            self.position_txt.update()
 
             self.play_icon.icon = ft.Icons.PAUSE
             self.play_btn.update()
@@ -264,6 +299,8 @@ class PlayerView(ft.View):
                         if current_time <= self.slider.max:
                             self.slider.value = current_time
                             self.slider.update()
+                            self.position_txt.value = f"{self.format_time(current_time)} / {self.format_time(app_state.audio_length)}"
+                            self.position_txt.update()
                     # NEW: Check for Auto-Next Track when song ends
                     elif not pygame.mixer.music.get_busy() and app_state.is_playing:
                          # Music stopped busy but we think it should be playing -> ended
@@ -271,7 +308,10 @@ class PlayerView(ft.View):
                          self.play_icon.icon = ft.Icons.PLAY_ARROW
                          self.play_btn.update()
                          # Auto advance
-                         if app_state.current_track_index + 1 < len(app_state.playlist):
+                         if app_state.is_shuffle_enabled and len(app_state.playlist) > 1:
+                              # Logic for auto-next shuffle
+                              await self.next_track(None)
+                         elif app_state.current_track_index + 1 < len(app_state.playlist):
                              await self.play_track_by_index(app_state.current_track_index + 1)
                          elif app_state.is_repeat_enabled and len(app_state.playlist) > 0: 
                              # Loop back to start if repeat is enabled
